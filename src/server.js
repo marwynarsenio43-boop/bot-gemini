@@ -18,7 +18,21 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '..', 'public')));
+const fs = require('fs');
+const publicPaths = [
+  path.join(__dirname, '..', 'public'),
+  path.join(__dirname, 'public'),
+  path.join(process.cwd(), 'public')
+];
+for (const p of publicPaths) { app.use(express.static(p)); }
+
+app.get('/', (req, res) => {
+  for (const p of publicPaths) {
+    const f = path.join(p, 'index.html');
+    if (fs.existsSync(f)) return res.sendFile(f);
+  }
+  res.send('<h1 style="font-family:sans-serif;color:#25D366;padding:40px">✅ ZapBot Cloud online!<br><small style="color:#999;font-size:.6em">Pasta public não encontrada no servidor.</small></h1>');
+});
 
 // ─────────────────────────────────────────────────────────────
 //  WEBHOOK — WhatsApp envia mensagens aqui
