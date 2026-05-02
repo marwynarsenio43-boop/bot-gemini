@@ -1,27 +1,4 @@
-/**
- * ZapBot Cloud — Servidor Principal
- * WhatsApp Business Cloud API + Google Gemini
- * Painel incorporado — sem dependência de pasta public
- */
-
-require('dotenv').config();
-const express = require('express');
-const cors    = require('cors');
-const path    = require('path');
-
-const whatsapp = require('./whatsapp');
-const gemini   = require('./gemini');
-const config   = require('./config-manager');
-const store    = require('./store');
-
-const app  = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(cors());
-app.use(express.json());
-
-// HTML do painel incorporado directamente no servidor
-const PANEL_HTML = `<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
@@ -709,13 +686,13 @@ async function loadHome() {
 
   const el = document.getElementById('recentList');
   if (!stats.recentActivity?.length) return;
-  el.innerHTML = stats.recentActivity.map(a => \`
+  el.innerHTML = stats.recentActivity.map(a => `
     <div style="padding:9px 0;border-bottom:1px solid var(--bd);font-size:.8rem">
-      <div style="font-weight:500">\${esc(a.name)}</div>
-      <div style="color:var(--mu);margin-top:2px">\${esc(a.preview)}</div>
-      <div style="color:var(--mu);font-size:.7rem;margin-top:2px">\${timeAgo(a.ts)} · \${a.elapsed}ms</div>
+      <div style="font-weight:500">${esc(a.name)}</div>
+      <div style="color:var(--mu);margin-top:2px">${esc(a.preview)}</div>
+      <div style="color:var(--mu);font-size:.7rem;margin-top:2px">${timeAgo(a.ts)} · ${a.elapsed}ms</div>
     </div>
-  \`).join('');
+  `).join('');
 }
 
 // ── Save config ────────────────────────────────────────────────
@@ -753,8 +730,8 @@ async function testKey() {
   const r = await api('/api/gemini/test','POST',{ key: gv('geminiKey'), model: gv('geminiModel') });
   btn.textContent = '🧪 Testar Chave';
   const el = document.getElementById('keyRes');
-  if (r?.ok) el.innerHTML = \`<span style="color:var(--g)">✅ Válida! "\${(r.reply||'').substring(0,50)}"</span>\`;
-  else        el.innerHTML = \`<span style="color:var(--red)">❌ \${r?.message||'Inválida'}</span>\`;
+  if (r?.ok) el.innerHTML = `<span style="color:var(--g)">✅ Válida! "${(r.reply||'').substring(0,50)}"</span>`;
+  else        el.innerHTML = `<span style="color:var(--red)">❌ ${r?.message||'Inválida'}</span>`;
 }
 
 // ── Chat test ─────────────────────────────────────────────────
@@ -789,7 +766,7 @@ function bubble(side, text) {
   const now = new Date().toLocaleTimeString('pt',{hour:'2-digit',minute:'2-digit'});
   const d = document.createElement('div');
   d.className = 'msg '+side;
-  d.innerHTML = \`<div class="bub">\${esc(text).replace(/\\n/g,'<br>')}<div class="t">\${now}</div></div>\`;
+  d.innerHTML = `<div class="bub">${esc(text).replace(/\n/g,'<br>')}<div class="t">${now}</div></div>`;
   box.appendChild(d); box.scrollTop = box.scrollHeight;
 }
 
@@ -809,19 +786,19 @@ async function loadConvs() {
   const list = await api('/api/conversations');
   const el   = document.getElementById('convList');
   if (!list?.length) return;
-  el.innerHTML = list.map(c => \`
+  el.innerHTML = list.map(c => `
     <div class="citem">
       <div class="cav">👤</div>
       <div style="flex:1;min-width:0">
-        <div class="cname">\${esc(c.name)}</div>
-        <div class="clast">\${esc(c.preview)}</div>
+        <div class="cname">${esc(c.name)}</div>
+        <div class="clast">${esc(c.preview)}</div>
       </div>
       <div class="cmeta">
-        <div class="ctime">\${timeAgo(c.lastMsg)}</div>
-        <div class="cbadge">\${c.msgCount}</div>
+        <div class="ctime">${timeAgo(c.lastMsg)}</div>
+        <div class="cbadge">${c.msgCount}</div>
       </div>
     </div>
-  \`).join('');
+  `).join('');
 }
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -875,158 +852,3 @@ setInterval(loadHome, 30000); // refresh stats every 30s
 </script>
 </body>
 </html>
-`;
-
-// Rota raiz — servir o painel
-app.get('/', (req, res) => {
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(PANEL_HTML);
-});
-
-// ─────────────────────────────────────────────────────────────
-//  WEBHOOK — WhatsApp envia mensagens aqui
-// ─────────────────────────────────────────────────────────────
-
-app.get('/webhook', (req, res) => {
-  const mode      = req.query['hub.mode'];
-  const token     = req.query['hub.verify_token'];
-  const challenge = req.query['hub.challenge'];
-  const cfg       = config.getAll();
-
-  if (mode === 'subscribe' && token === cfg.verifyToken) {
-    console.log('✅ Webhook verificado pela Meta!');
-    res.status(200).send(challenge);
-  } else {
-    console.error('❌ Token de verificação inválido.');
-    res.sendStatus(403);
-  }
-});
-
-app.post('/webhook', async (req, res) => {
-  res.sendStatus(200);
-
-  try {
-    const body = req.body;
-    if (body.object !== 'whatsapp_business_account') return;
-
-    const entry   = body.entry?.[0];
-    const changes = entry?.changes?.[0];
-    const value   = changes?.value;
-    const msg     = value?.messages?.[0];
-
-    if (!msg) return;
-
-    const from    = msg.from;
-    const msgType = msg.type;
-    const cfg     = config.getAll();
-
-    if (msgType !== 'text') {
-      await whatsapp.sendMessage(from, '👋 Olá! Por enquanto só consigo responder a mensagens de texto. Escreva a sua dúvida! 😊');
-      return;
-    }
-
-    const text    = msg.text.body.trim();
-    const contact = value?.contacts?.[0];
-    const name    = contact?.profile?.name || from;
-
-    console.log(`📨 Mensagem de ${name} (${from}): "${text.substring(0, 80)}"`);
-
-    if (!cfg.geminiKey || !cfg.waToken || !cfg.waPhoneId) {
-      console.error('❌ Configuração incompleta.');
-      return;
-    }
-
-    if (!cfg.autoReply) return;
-
-    if (cfg.typing) await whatsapp.sendTyping(from);
-
-    const history = cfg.memory ? store.getHistory(from) : [];
-    const delay   = parseInt(cfg.delay) || 2000;
-    await sleep(delay + Math.random() * 800);
-
-    const t0      = Date.now();
-    const reply   = await gemini.chat(text, history, name, cfg);
-    const elapsed = Date.now() - t0;
-
-    store.addMessage(from, { role: 'user',  content: text,  name });
-    store.addMessage(from, { role: 'model', content: reply, name: cfg.agentName || 'Agente' });
-    store.addStat({ from, name, text, reply, elapsed, ts: Date.now() });
-
-    await whatsapp.sendMessage(from, reply);
-    console.log(`✅ Respondido a ${name} em ${elapsed}ms`);
-
-  } catch (err) {
-    console.error('❌ Erro ao processar mensagem:', err.message);
-  }
-});
-
-// ─── API REST ─────────────────────────────────────────────────
-
-app.get('/api/config', (req, res) => {
-  const cfg = config.getAll();
-  res.json({
-    ...cfg,
-    waToken:   cfg.waToken   ? '***' + cfg.waToken.slice(-6)   : '',
-    geminiKey: cfg.geminiKey ? '***' + cfg.geminiKey.slice(-6) : '',
-    waSecret:  cfg.waSecret  ? '***' + cfg.waSecret.slice(-4)  : ''
-  });
-});
-
-app.post('/api/config', (req, res) => {
-  try {
-    const body    = { ...req.body };
-    const current = config.getAll();
-    if (body.waToken   && body.waToken.startsWith('***'))   body.waToken   = current.waToken;
-    if (body.geminiKey && body.geminiKey.startsWith('***')) body.geminiKey = current.geminiKey;
-    if (body.waSecret  && body.waSecret.startsWith('***'))  body.waSecret  = current.waSecret;
-    config.setAll(body);
-    res.json({ ok: true, message: 'Configuração guardada com sucesso.' });
-  } catch (e) {
-    res.status(400).json({ ok: false, message: e.message });
-  }
-});
-
-app.post('/api/gemini/test', async (req, res) => {
-  try {
-    const cfg   = config.getAll();
-    const key   = req.body.key && !req.body.key.startsWith('***') ? req.body.key : cfg.geminiKey;
-    const reply = await gemini.test(key, req.body.model || cfg.geminiModel);
-    res.json({ ok: true, reply });
-  } catch (e) {
-    res.status(400).json({ ok: false, message: e.message });
-  }
-});
-
-app.post('/api/chat/test', async (req, res) => {
-  try {
-    const cfg     = config.getAll();
-    const { message, history } = req.body;
-    const reply   = await gemini.chat(message, history || [], 'Cliente Teste', cfg);
-    res.json({ ok: true, reply });
-  } catch (e) {
-    res.status(400).json({ ok: false, message: e.message });
-  }
-});
-
-app.get('/api/stats',           (req, res) => res.json(store.getStats()));
-app.get('/api/conversations',   (req, res) => res.json(store.getConversations()));
-app.get('/api/conversation/:f', (req, res) => res.json(store.getHistory(req.params.f)));
-
-app.post('/api/send', async (req, res) => {
-  try {
-    await whatsapp.sendMessage(req.body.number, req.body.message);
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ ok: false, message: e.message });
-  }
-});
-
-app.get('/health', (req, res) => res.json({ status: 'ok', ts: Date.now() }));
-
-// ─────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`\n🤖 ZapBot Cloud em execução na porta ${PORT}`);
-  console.log(`🌐 Painel: http://localhost:${PORT}\n`);
-});
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
